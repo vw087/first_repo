@@ -1,0 +1,250 @@
+---
+title: "Assignment 1"
+output: html_document
+---
+
+```{r}
+
+
+library(readr)
+
+setwd("C:/Users/vajir/Documents/Broad Workshops/R-workspace/Assignment1/Assignment1-R-markdown/")
+
+paad_rsem_norm_meta <- read_tsv("paad_rsem_norm_meta.txt")
+
+
+
+```
+
+How many rows and columns
+
+```{r}
+
+rows_columns <- dim(paad_rsem_norm_meta)
+
+paste("Rows:", rows_columns[1])
+paste("Columns:", rows_columns[2])
+
+```
+
+When you import a table, cleaning is important.
+1 st step, subset data columns and non-data (meta) columns using grep() function
+
+How many columns start with "TCGA"
+Subset [] the colnames using the grep(), to find columns begin with TCGA, "^TCGA"
+
+These objects (data.cols and meta.cols) are character vectors. They do not come as dataframes
+
+
+```{r}
+
+data.cols <- colnames (paad_rsem_norm_meta) [grep("^TCGA", colnames(paad_rsem_norm_meta))]
+
+meta.cols <- colnames (paad_rsem_norm_meta) [grep("^TCGA", colnames(paad_rsem_norm_meta), invert = TRUE)]
+
+
+paste(length(data.cols))
+
+paste(meta.cols)
+
+paste(class(data.cols))
+
+paste(class(meta.cols))
+
+```
+
+How many columns are neither tumor (01), nor normal (11)? What are they?
+
+These are the ones neither 01 or 11 of TCGA columans. These samples are metastatic samples - subset them as other.cols
+
+To do this, first subset [] tumor and normal columns from the data.col object (a character object) using grepl().
+
+grepl() returns a logical vector.
+
+Next, use the inver (!) of value matching (%in%) between initially defined all data columns (data.cols) and tumor and normal [c(tumor.cols, normal.cols)], to subset the metastatic column.
+
+data.cols is a character vector. grepl() returns two logical vectors. Value matching returns all TRUE objects from data.col. By inverting (!) we extract the answer
+
+```{r}
+
+tumor.cols <- data.cols[grepl ("TCGA-.*-.*-01.*-.*-.*-.",data.cols)]
+
+normal.cols <- data.cols[grepl ("TCGA-.*-.*-11.*-.*-.*-.",data.cols)]
+
+other.cols <- data.cols [! (data.cols %in% c(tumor.cols, normal.cols))]
+
+other.cols
+
+```
+
+Here on keep working with the data frame
+
+Generate a new dataset with only primary solid tumors. meta.cols are used as row names and tumor.cols are used as columns
+
+```{r}
+
+tumor.data <- paad_rsem_norm_meta [, c(meta.cols,tumor.cols)]
+
+dim(tumor.data)
+
+class(tumor.data)
+
+colnames(tumor.data)
+
+
+
+```
+
+
+Remove any rows with unkonwn gene symbols or duplicated gene ids in e_gene_symbol column
+
+create a new character vector by subsetting e_gene_symbol column of tumor.data data frame for duplicated gene ids and define dup.ids.
+
+Then subset tumor.data data frame using NOT(!) operator, by value matching duplicated ids (dup.ids - the character vector) to e_gene_symbol column in tumor.data to define the dataframe tumor.data.v
+
+```{r}
+
+dup.ids <- tumor.data$e_gene_symbol [duplicated(tumor.data$e_gene_symbol)]
+
+class(dup.ids)
+
+paste(dup.ids)
+
+tumor.data.v <- tumor.data [!tumor.data$e_gene_symbol %in% dup.ids,]
+
+dim(tumor.data.v)
+
+class(tumor.data.v)
+
+
+
+```
+
+
+Calculate the median across all samples
+
+I intend to use rowMedian() from matrixStats package. 
+
+So first I call the package by using library(), Then I got an error saying I only can use rowMedian function on either a matrix or vector.
+
+Therefore, I converted the dataframe to a matrix, which eliminates the rownames by converting them to NA. Then I used the rowMedian(), with the operator na.rm=TRUE, so all NA will be removed from the calculation
+
+```{r}
+
+library("matrixStats",lib.loc = "~/R/win-library/3.4/")
+
+tumor.data.v.matrix <- data.matrix(tumor.data.v,rownames.force = NA)
+
+class(tumor.data.v.matrix)
+
+row.median <- rowMedians(tumor.data.v.matrix, na.rm = TRUE)
+
+class (row.median)
+
+# assign rowmedian to original dataset using cbind. this will add the 49th column
+
+
+tumor.data.v.median <- cbind(tumor.data.v, row.median)
+
+colnames(tumor.data.v.median)
+
+
+# Now, order according to the row median using order function, with operator, decreasing = TRUE 
+
+tumor.data.v.ranked <- tumor.data.v.median[order(tumor.data.v.median$row.median, decreasing = TRUE),]
+
+class(tumor.data.v.ranked)
+
+dim(tumor.data.v.ranked)
+
+colnames(tumor.data.v.ranked)
+
+# Now subset top 250 rows
+
+tumor.data.top.250 <- tumor.data.v.ranked [1:250,]
+
+class(tumor.data.top.250)
+
+dim(tumor.data.top.250)
+
+colnames(tumor.data.top.250)
+
+
+```
+
+
+Generate a histogram for the distribution of expression across top 250 genes. Use log10(RSEM+1) for plotting
+
+
+```{r}
+
+# histograms use y axis for counts. Therefore, you cannot asign a variable for y axis. Only X axis could be defined.
+
+library(ggplot2)
+
+ggplot(tumor.data.top.250, aes ( x = log10(row.median+1))) + 
+  
+theme_bw() +
+  
+geom_histogram() + 
+  
+labs (X = "log 10 (RSEM+1)", title = " Distribution of Expression Across the Top 250 Genes")
+
+
+
+ggplot(tumor.data.top.250, aes ( x = log10(row.median+1))) + 
+  
+theme_bw() +
+  
+geom_density() + 
+  
+labs (X = "log 10 (RSEM+1)", title = " Distribution of Expression Across the Top 250 Genes")
+
+
+```
+
+
+
+Only for primary solid tumors, generate a scatter plot for comapring TCGA-2J-AAB1-01A-11R-A41B-07 (X-axis) and TCGA-2J-AAB4-01A-12R-A41B-07 (y-axis) using log10(RSEM+1), add a regression line using lm()
+
+
+```{r}
+
+# First I will subset the data I want to plot
+
+subset.tumor <- tumor.data.top.250[, c("TCGA-2J-AAB1-01A-11R-A41B-07","TCGA-2J-AAB4-01A-12R-A41B-07")]
+
+dim(subset.tumor)
+
+colnames(subset.tumor)
+
+# The column name contains "-" followed by a capital letter which is misidentified as an object by R, therefore, I rename it. Is there a way to change all column names?
+
+# Here you can also use gsub() in the begining to change all "-" to "_" in a given dataset
+
+colnames(subset.tumor)[colnames(subset.tumor)=="TCGA-2J-AAB1-01A-11R-A41B-07"] <- "TCGA_2J_AAB1_01A_11R_A41B_07"
+
+colnames(subset.tumor)[colnames(subset.tumor)=="TCGA-2J-AAB4-01A-12R-A41B-07"] <- "TCGA_2J_AAB4_01A_12R_A41B_07"
+
+colnames(subset.tumor)
+
+
+ggplot(subset.tumor, aes(x = TCGA_2J_AAB1_01A_11R_A41B_07, y = TCGA_2J_AAB4_01A_12R_A41B_07)) + geom_point() + geom_smooth(method=lm)
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
